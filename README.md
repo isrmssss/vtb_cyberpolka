@@ -1,102 +1,101 @@
-# VTB Cyberpolka 2026 — Решение для задачи мультилейбл классификации
+# VTB Cyberpolka 2026 вЂ” Multi-label Classification Solution
 
-## Результат
+## Result
 
-- **Место в leaderboard**: Top 4%
+- **Leaderboard position**: Top 4%
 - **Local Macro ROC-AUC**: 0.8142
-- **Датасет**: 750K клиентов для обучения, 250K для теста
-- **Задача**: Предсказать 41 финансовый продукт для каждого клиента
+- **Dataset**: 750K clients for training, 250K for test
+- **Task**: Predict 41 financial products for each bank client
 
-## Описание задачи
+## Task Description
 
-Хакатон Data Fusion Contest 2026, задание " Киберполка\. Необходимо построить модель мультилейбл классификации для предсказания вероятности наличия 41 финансового продукта у клиента банка. Данные анонимизированы — признаки названы как \cat_feature_N\ (категориальные) и \
-um_feature_N\ (числовые), таргеты — \ arget_X_Y\.
+Data Fusion Contest 2026, task "Cyberpolka". Build a multi-label classification model to predict the probability of 41 financial products for bank clients. Data is anonymized вЂ” features named `cat_feature_N` (categorical) and `num_feature_N` (numeric), targets вЂ” `target_X_Y`.
 
-**Метрика**: Macro ROC-AUC (усреднённый по всем 41 таргетам).
+**Metric**: Macro ROC-AUC (averaged across all 41 targets).
 
-## Ключевые гипотезы и решения
+## Key Hypotheses and Solutions
 
-### 1. Валидация по времени (CRITICAL)
+### 1. Time-based Validation (CRITICAL)
 
-Изначально использовал random K-fold — результаты были посредственные. Переход на time-based split резко улучшил качество:
-- Train: первые 600K клиентов
-- Validation: последние 150K клиентов
+Initially used random K-fold вЂ” results were mediocre. Switching to time-based split dramatically improved quality:
+- Train: first 600K clients
+- Validation: last 150K clients
 
-**Почему это важно**: ID клиентов имеют временную структуру (1M-1.75M — train, 1.75M-2M — test). Random split приводит к утечке данных из будущего в прошлое.
+**Why this matters**: Client IDs have temporal structure (1M-1.75M вЂ” train, 1.75M-2M вЂ” test). Random split leads to data leakage from future to past.
 
 ### 2. Classifier Chains
 
-Вместо единой мультилейбл модели использовал 41 отдельную бинарную классификацию с цепной зависимостью:
-- Сортировка таргетов по частоте (от частых к редким)
-- Предсказания предыдущих моделей добавляются как признаки для следующих
-- Это позволяет учитывать корреляции между продуктами
+Instead of a single multi-label model, used 41 separate binary classifiers with chain dependency:
+- Sort targets by frequency (from common to rare)
+- Previous predictions added as features for next models
+- This captures correlations between products
 
-### 3. SVD на дополнительных признаках
+### 3. SVD on Extra Features
 
-В данных есть 2241 дополнительных числовых признака. Применил SVD (100 компонент) для сжатия информации без потери важных паттернов.
+Data contains 2241 additional numeric features. Applied SVD (100 components) to compress information while preserving important patterns.
 
-### 4. Флаги пропущенных значений
+### 4. Missing Value Flags
 
-Создал бинарные признаки для топ-50 фичей с наибольшим количеством NaN. Пропуски часто сигнализируют о редких событиях (блокировки счетов, премиум-услуги).
+Created binary features for top-50 features with most NaN values. Missing values often signal rare events (account blocks, premium services).
 
-### 5. CatBoost с GPU
+### 5. CatBoost with GPU
 
-- 41 модель с Logloss
-- auto_class_weights=\Balanced\ для несбалансированных классов
-- GPU ускорение для быстрой итерации
+- 41 models with Logloss
+- auto_class_weights="Balanced" for imbalanced classes
+- GPU acceleration for fast iteration
 
-## Архитектура решения
+## Solution Architecture
 
-\\\
+```
 vtb_cyberpolka/
-+-- train.py # Главный скрипт запуска
-+-- configs/
-¦ L-- model_params.yaml # Параметры модели
-+-- src/
-¦ +-- pipeline/ # Фазы пайплайна
-¦ ¦ +-- phase1_svd.py # SVD на доп. признаках
-¦ ¦ +-- phase2_adversarial.py # Анализ стабильности фичей
-¦ ¦ +-- phase3_features.py # Флаги NaN + rolling encoding
-¦ ¦ +-- phase4_training.py # Обучение CatBoost цепей
-¦ ¦ +-- phase7_optuna_tuning.py # Optuna для проблемных таргетов
-¦ ¦ L-- phase9_inference.py # Инференс на тесте
-¦ +-- data/ # Загрузка и предобработка
-¦ +-- features/ # Фичевая инженерия
-¦ L-- utils/ # Метрики и утилиты
-L-- data/
- +-- catboost_model_*.cbm # 41 обученная модель
- L-- submit_day2.parquet # Итоговый submission
-\\\
+в”њв”Ђв”Ђ train.py              # Main training script
+в”њв”Ђв”Ђ configs/
+в”‚   в””в”Ђв”Ђ model_params.yaml # Model parameters
+в”њв”Ђв”Ђ src/
+в”‚   в”њв”Ђв”Ђ pipeline/         # Pipeline phases
+в”‚   в”‚   в”њв”Ђв”Ђ phase1_svd.py          # SVD on extra features
+в”‚   в”‚   в”њв”Ђв”Ђ phase2_adversarial.py # Feature stability analysis
+в”‚   в”‚   в”њв”Ђв”Ђ phase3_features.py    # NaN flags + rolling encoding
+в”‚   в”‚   в”њв”Ђв”Ђ phase4_training.py   # CatBoost chain training
+в”‚   в”‚   в”њв”Ђв”Ђ phase7_optuna_tuning.py # Optuna for problem targets
+в”‚   в”‚   в””в”Ђв”Ђ phase9_inference.py   # Test inference
+в”‚   в”њв”Ђв”Ђ data/             # Data loading & preprocessing
+в”‚   в”њв”Ђв”Ђ features/         # Feature engineering
+в”‚   в””в”Ђв”Ђ utils/            # Metrics & utilities
+в””в”Ђв”Ђ data/
+    в”њв”Ђв”Ђ catboost_model_*.cbm  # 41 trained models
+    в””в”Ђв”Ђ submit_day2.parquet   # Final submission
+```
 
-## Сложности и проблемы
+## Challenges and Issues
 
-- **5 проблемных таргетов** (AUC < 0.75): target_9_6 (0.679), target_9_3 (0.682), target_3_1 (0.685), target_6_1 (0.703), target_5_2 (0.705)
-- Не успел завершить полноценный ансамблинг и Optuna tuning для всех таргетов
-- Пришлось остановиться из-за ограничения по времени хакатона
+- **5 problem targets** (AUC < 0.75): target_9_6 (0.679), target_9_3 (0.682), target_3_1 (0.685), target_6_1 (0.703), target_5_2 (0.705)
+- Couldn't complete full ensemble and Optuna tuning for all targets
+- Had to stop due to hackathon time constraints
 
-## Запуск
+## Running
 
-\\\ash
-# Активировать виртуальное окружение
+```bash
+# Activate virtual environment
 source venv/bin/activate
 
-# Запуск обучения
+# Run training
 python train.py
-\\\
+```
 
-## Зависимости
+## Dependencies
 
 - Python 3.9+
 - polars, numpy, pandas
 - catboost (GPU)
-- lightgbm (для adversarial validation)
-- optuna (для tuning)
-- pyarrow (для parquet)
+- lightgbm (for adversarial validation)
+- optuna (for tuning)
+- pyarrow (for parquet)
 
-## Что можно улучшить
+## Potential Improvements
 
-1. Полноценный Optuna tuning для всех 41 таргетов
-2. Ансамблинг с LightGBM
-3. Pseudo-labeling для редких таргетов
-4. Взаимодействия признаков (feature interactions)
-5. Использование корреляций между таргетами
+1. Full Optuna tuning for all 41 targets
+2. Ensemble with LightGBM
+3. Pseudo-labeling for rare targets
+4. Feature interactions
+5. Using target correlations
