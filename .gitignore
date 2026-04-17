@@ -1,0 +1,28 @@
+# Data files (excluded from git)
+data/*.parquet
+data/*.npy
+data/*.cbm
+data/*.json
+data/*.png
+data/*.dat
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# CatBoost
+catboost_info/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
